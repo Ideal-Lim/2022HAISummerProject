@@ -7,3 +7,8 @@
 /dataSources/
 /dataSources.local.xml
 idea/vcs.xml
+idea/
+make_config.py
+config.json
+HAIStockTest.ipynb
+example
