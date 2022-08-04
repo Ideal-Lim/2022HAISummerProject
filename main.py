@@ -42,8 +42,8 @@ def get_target_price(ticker):
         tqqq_day = yf.Ticker(ticker).history(period='90d') #TQQQ 1day data
         lastday_high = tqqq_day.iloc[-2]['High']
         lastday_low = tqqq_day.iloc[-2]['Low']
-        today_open = tqqq_day.iloc[1]['Open']
-        target_price = today_open + (lastday_high - lastday_low) * 0.4
+        today_open = tqqq_day.iloc[-1]['Open']
+        target_price = today_open + (lastday_high - lastday_low) * 0.3
         return target_price
     except Exception as ex :
         printlog(ex)
@@ -65,7 +65,7 @@ def buy_tqqq(stock: HAIStock):
 
 def sell_tqqq(stock: HAIStock):
     try:
-        my_stock_qty = get_my_stock()['share']
+        my_stock_qty = get_my_stock(stock)['share']
         price = cur_tqqq * 0.9998 # 매도가
         num = stock.send_order(OrderTypes.SELL, 'TQQQ', my_stock_qty, price)
         printlog("판매")
@@ -82,8 +82,10 @@ if __name__ == '__main__':
         today_str = (datetime.now() - timedelta(hours=13)).strftime('%Y-%m-%d')
         # 목표가
         target_price = get_target_price('TQQQ')
+        printlog(f"오늘의 target_price: {target_price}")
 
         order_position = False  # 주문 여부
+        order_timing = False # 주문 할지 여부
         order_check_time = 'None' # 주문 후 10분 후 시간
         buy_position = False # 매수 성공 여부
 
@@ -115,15 +117,21 @@ if __name__ == '__main__':
             if not order_position: # 주문하지 않은 경우
                 if t_buy_start < t_now < t_buy_end : # 22:30 ~ 4:50 사이
                     if cur_tqqq > target_price and cur_tqqq > ma5 and cur_tqqq > ma10:
-                        order = buy_tqqq(stock) # 매수
-                        order_time = (t_now + timedelta(minutes=10)).strftime('%H:%M')
-                        order_position = True
+                        order_timing = True # 매수 주문 타이밍
+                        if t_now.minute % 10 == 9 and order_timing is True: # 9분일 때
+                            buy_tqqq(stock) # 매수 주문
+                            order_time = (t_now + timedelta(minutes=2)).strftime('%H:%M')
+                            order_position = True
+                            order_timing = False
 
             # 시장 마감 전 전량 매도
             if t_sell_start < t_now < t_exit : # 4:58 ~ 5:00 사이
                 sell_tqqq(stock) # 매도
-                time.sleep(5)
+                time.sleep(120)
                 os.system('shutdown -s -f') # 종료
-            time.sleep(60)
+
+            printlog(f'현재 가격 : {cur_tqqq}, ma5: {ma5}, ma10: {ma10}')
+            time.sleep(59)
+
     except Exception as ex:
         printlog(str(ex))
