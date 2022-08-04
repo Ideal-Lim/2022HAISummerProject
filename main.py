@@ -12,10 +12,10 @@ def printlog(message, *args):
 def update_data(ticker):
     """데이터 최신화 """
     if ticker == '^IXIC':
-        realtime_data = yf.history(tickers=ticker, interval='1m', period='1d') #^IXIC -> Nasdaq 지수
+        realtime_data = yf.Ticker(ticker).history(interval='1m', period='1d') #^IXIC -> Nasdaq 지수
         realtime_data.to_csv(f"./YfinanceData/Nasdaq/nasdaq_{today_str}.csv")
     else :
-        realtime_data = yf.history(tickers=ticker, interval='1m', period='1d')  # ^IXIC -> Nasdaq 지수
+        realtime_data = yf.Ticker(ticker).history(interval='1m', period='1d')  # ^IXIC -> Nasdaq 지수
         realtime_data.to_csv(f"./YfinanceData/{ticker}/{ticker}_{today_str}.csv")
     return realtime_data
 
@@ -55,7 +55,7 @@ def get_movingaverage(window):
 def buy_tqqq(stock: HAIStock):
     """tqqq 풀매수"""
     try:
-        buy_qty = (get_account_deposit(stock) // 1.5) // cur_tqqq # 매수 수량
+        buy_qty = get_account_deposit(stock) // cur_tqqq # 매수 수량
         price = cur_tqqq * 1.0001 # 매수가
         num = stock.send_order(OrderTypes.BUY, 'TQQQ', buy_qty, price)
         printlog(f'[주문번호 : {num}] 가격 : {price}, 수량: {buy_qty} 매수 주문 신청')
@@ -66,8 +66,9 @@ def buy_tqqq(stock: HAIStock):
 def sell_tqqq(stock: HAIStock):
     try:
         my_stock_qty = get_my_stock()['share']
-        price = cur_tqqq * 0.9998
+        price = cur_tqqq * 0.9998 # 매도가
         num = stock.send_order(OrderTypes.SELL, 'TQQQ', my_stock_qty, price)
+        printlog("판매")
     except:
         printlog("주문 불가")
 
@@ -79,18 +80,19 @@ if __name__ == '__main__':
         stock = HAIStock(CONFIG['server'], CONFIG['token'])
         # 오늘 날짜 : 미국 증시 시간으로 맞춰줌 ex) 한국 2022-8-3 00:30 -> 미국 2022-8-2 11:30
         today_str = (datetime.now() - timedelta(hours=13)).strftime('%Y-%m-%d')
-        # 주문번호 리스트
-        order_list = []
         # 목표가
         target_price = get_target_price('TQQQ')
 
+        order_position = False  # 주문 여부
+        order_check_time = 'None' # 주문 후 10분 후 시간
+        buy_position = False # 매수 성공 여부
 
         while True:
             t_now = datetime.now()
             # 매수시간 매도시간
             t_buy_start = t_now.replace(hour=22, minute=30, second=0, microsecond=0)
             t_buy_end = t_now.replace(hour=4, minute=50, second=0, microsecond=0)
-            t_sell_start = t_now.replace(hour=4, minute=59, second=00, microsecond=0)
+            t_sell_start = t_now.replace(hour=4, minute=58, second=00, microsecond=0)
             t_exit = t_now.replace(hour=5, minute=00, second=0, microsecond=0)
 
             # TQQQ 데이터 동기화
@@ -102,12 +104,23 @@ if __name__ == '__main__':
             ma5 = get_movingaverage(5)
             ma10 = get_movingaverage(10)
 
+            # 매수 여부 확인
+            if t_now.strftime('%H:%M') == order_check_time and order_position is True: # 주문하고 10분 후 체크
+                if len(get_my_stock(stock)) != 0:
+                    buy_position = True # 매수 성공
+                else:
+                    order_position = False # 매수 실패
+
             """Process"""
-            if t_buy_start < t_now < t_buy_end : # 22:30 ~ 4:50 사이
-                if cur_tqqq > target_price and cur_tqqq > ma5 and cur_tqqq > ma10:
-                    order = buy_tqqq(stock) # 매수
-                    order_list.append(order) # 주문 번호 추가
-            if t_sell_start < t_now < t_exit : # 4:50 ~ 5:00 사이
+            if not order_position: # 주문하지 않은 경우
+                if t_buy_start < t_now < t_buy_end : # 22:30 ~ 4:50 사이
+                    if cur_tqqq > target_price and cur_tqqq > ma5 and cur_tqqq > ma10:
+                        order = buy_tqqq(stock) # 매수
+                        order_time = (t_now + timedelta(minutes=10)).strftime('%H:%M')
+                        order_position = True
+
+            # 시장 마감 전 전량 매도
+            if t_sell_start < t_now < t_exit : # 4:58 ~ 5:00 사이
                 sell_tqqq(stock) # 매도
                 time.sleep(5)
                 os.system('shutdown -s -f') # 종료
