@@ -14,7 +14,7 @@ def update_data(ticker):
     if ticker == '^IXIC':
         realtime_data = yf.Ticker(ticker).history(interval='1m', period='1d') #^IXIC -> Nasdaq 지수
         realtime_data.to_csv(f"./YfinanceData/Nasdaq/nasdaq_{today_str}.csv")
-    else :
+    else:
         realtime_data = yf.Ticker(ticker).history(interval='1m', period='1d')  # ^IXIC -> Nasdaq 지수
         realtime_data.to_csv(f"./YfinanceData/{ticker}/{ticker}_{today_str}.csv")
     return realtime_data
@@ -33,7 +33,7 @@ def get_account_deposit(stock:HAIStock):
 
 def get_my_stock(stock:HAIStock):
     """소유한 주식 정보를 확인한다."""
-    my_stock = stock.account_info()['stock']
+    my_stock = stock.account_info()['stocks']
     return my_stock
 
 def get_target_price(ticker):
@@ -56,7 +56,7 @@ def buy_tqqq(stock: HAIStock):
     """tqqq 풀매수"""
     try:
         buy_qty = get_account_deposit(stock) // cur_tqqq # 매수 수량
-        price = cur_tqqq * 1.0001 # 매수가
+        price = cur_tqqq * 1.0002 # 매수가
         num = stock.send_order(OrderTypes.BUY, 'TQQQ', buy_qty, price)
         printlog(f'[주문번호 : {num}] 가격 : {price}, 수량: {buy_qty} 매수 주문 신청')
         return num
@@ -86,8 +86,14 @@ if __name__ == '__main__':
 
         order_position = False  # 주문 여부
         order_timing = False # 주문 할지 여부
-        order_check_time = 'None' # 주문 후 10분 후 시간
+        order_check_time = 'None' # 매수 주문 후 2분 후 시간
+        sell_check_time = 'None' # 매도 주문 후 2분 후 시간
         buy_position = False # 매수 성공 여부
+
+        # 주식 홀드 여부 확인
+        hold_position = False
+        if len(get_my_stock(stock)) != 0:
+            hold_position = True
 
         while True:
             t_now = datetime.now()
@@ -106,7 +112,19 @@ if __name__ == '__main__':
             ma5 = get_movingaverage(5)
             ma10 = get_movingaverage(10)
 
-            # 매수 여부 확인
+            # 시장 개장 후 바로 전량 매도
+            if hold_position: # 주식을 가지고 있으면
+                # 시간이 ?9분이 일 때 매도 주문 요청
+                if t_now.minute % 10 == 9:
+                    sell_tqqq(stock) # 판매
+                    sell_check_time = (t_now + timedelta(minutes=2)).strftime('%H:%M')
+
+            # 매도 성공 여부 확인
+            if hold_position and t_now.strftime('%H:%M') == sell_check_time:
+                if len(get_my_stock(stock)) == 0:
+                    hold_position = False # 판매완료
+
+            # 매수 성공 여부 확인
             if t_now.strftime('%H:%M') == order_check_time and order_position is True: # 주문하고 10분 후 체크
                 if len(get_my_stock(stock)) != 0:
                     buy_position = True # 매수 성공
@@ -118,16 +136,20 @@ if __name__ == '__main__':
                 if t_buy_start < t_now < t_buy_end : # 22:30 ~ 4:50 사이
                     if cur_tqqq > target_price and cur_tqqq > ma5 and cur_tqqq > ma10:
                         order_timing = True # 매수 주문 타이밍
-                        if t_now.minute % 10 == 9 and order_timing is True: # 9분일 때
+                        if t_now.minute % 10 == 9 and order_timing is True: # 매수호가를 맞추기 위해 ?9분일 때 주문 요청
                             buy_tqqq(stock) # 매수 주문
                             order_time = (t_now + timedelta(minutes=2)).strftime('%H:%M')
                             order_position = True
                             order_timing = False
 
-            # 시장 마감 전 전량 매도
-            if t_sell_start < t_now < t_exit : # 4:58 ~ 5:00 사이
-                sell_tqqq(stock) # 매도
-                time.sleep(120)
+            """시장 마감 전에 전량 매도 시 예금의 0.2% 수수료 발생하기 때문에 홀드하고 다음에 시장 개장하자마자 판매."""
+            # # 시장 마감 전 전량 매도
+            # if t_sell_start < t_now < t_exit : # 4:58 ~ 5:00 사이
+            #     sell_tqqq(stock) # 매도
+            #     time.sleep(120)
+            #     os.system('shutdown -s -f') # 종료
+
+            if t_now > t_exit: # 5: 00 이후
                 os.system('shutdown -s -f') # 종료
 
             printlog(f'현재 가격 : {cur_tqqq}, ma5: {ma5}, ma10: {ma10}')
